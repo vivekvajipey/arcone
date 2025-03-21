@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect, forwardRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider } from '@react-three/rapier';
-import { Group, Vector3, MeshStandardMaterial, Clock, Object3D, Color } from 'three';
+import { Group, Vector3, MeshStandardMaterial, Clock, Object3D, Color, MathUtils } from 'three';
 import { useGLTF } from '@react-three/drei';
 import { useHealth } from '../contexts/HealthContext';
 import { Projectile } from './Projectile';
@@ -10,18 +10,34 @@ type EtherealAutomatonProps = {
   position?: [number, number, number];
   scale?: number;
   target?: any;
+  arenaSize?: number;
 };
 
 // Pre-load the model
 useGLTF.preload('/models/automaton.glb');
 
 export const EtherealAutomaton = forwardRef<any, EtherealAutomatonProps>(
-  ({ position = [0, 0, 0], scale = 2, target }, ref) => {
+  ({ position = [0, 0, 0], scale = 2, target, arenaSize = 20 }, ref) => {
     const group = useRef<Group>(null);
     const rigidBody = useRef(null);
     const [modelLoaded, setModelLoaded] = useState(false);
     const { automatonHealth, isVictory } = useHealth();
     const clock = useRef(new Clock());
+    
+    // Load the model
+    const model = useGLTF('/models/automaton.glb');
+    
+    // Movement state
+    const currentPosition = useRef(new Vector3(position[0], position[1] + 1, position[2]));
+    const targetPosition = useRef(new Vector3(position[0], position[1] + 1, position[2]));
+    const movementSpeed = useRef(0.05); // Base speed
+    const movementPattern = useRef('orbit'); // 'orbit', 'chase', 'zigzag'
+    const orbitCenter = useRef(new Vector3(0, position[1] + 1, 0));
+    const orbitRadius = useRef(8);
+    const orbitAngle = useRef(0);
+    const changePatternTime = useRef(0);
+    const patternDuration = 8; // seconds before changing pattern
+    const movementHeightVariation = 0.5; // How much height varies during movement
     
     // Track defeated animation
     const [isDefeated, setIsDefeated] = useState(false);
@@ -47,12 +63,6 @@ export const EtherealAutomaton = forwardRef<any, EtherealAutomatonProps>(
     const prevHealthRef = useRef(automatonHealth);
     const originalMaterials = useRef<Map<MeshStandardMaterial, {color: Color, emissive: Color}>>
       (new Map());
-    
-    // Fixed position in the center
-    const centerPosition = new Vector3(position[0], position[1] + 1, position[2]);
-    
-    // Load the model
-    const model = useGLTF('/models/automaton.glb');
     
     // Forward the ref to the rigid body
     React.useImperativeHandle(ref, () => rigidBody.current);
@@ -87,6 +97,87 @@ export const EtherealAutomaton = forwardRef<any, EtherealAutomatonProps>(
       // Update previous health reference
       prevHealthRef.current = automatonHealth;
     }, [automatonHealth]);
+    
+    // Calculate new target position
+    const updateTargetPosition = (elapsedTime: number) => {
+      // Don't update target position if defeated or victory
+      if (isDefeated || isVictory) return;
+      
+      // Change movement pattern every few seconds
+      if (elapsedTime - changePatternTime.current > patternDuration) {
+        const patterns = ['orbit', 'chase', 'zigzag'];
+        // Pick a new pattern, different from the current one
+        let newPattern;
+        do {
+          newPattern = patterns[Math.floor(Math.random() * patterns.length)];
+        } while (newPattern === movementPattern.current);
+        
+        movementPattern.current = newPattern;
+        changePatternTime.current = elapsedTime;
+        
+        // Adjust speed based on pattern
+        if (movementPattern.current === 'chase') {
+          movementSpeed.current = 0.12; // Faster when chasing
+        } else if (movementPattern.current === 'zigzag') {
+          movementSpeed.current = 0.1; // Medium speed
+        } else {
+          movementSpeed.current = 0.05; // Slower during orbit
+        }
+        
+        console.log(`Automaton changed movement pattern to: ${movementPattern.current}`);
+      }
+      
+      // Calculate target position based on current pattern
+      switch (movementPattern.current) {
+        case 'orbit':
+          // Orbit around the center of the arena
+          orbitAngle.current += 0.01;
+          targetPosition.current.set(
+            orbitCenter.current.x + Math.sin(orbitAngle.current) * orbitRadius.current,
+            position[1] + 1 + Math.sin(elapsedTime * 0.5) * movementHeightVariation,
+            orbitCenter.current.z + Math.cos(orbitAngle.current) * orbitRadius.current
+          );
+          break;
+          
+        case 'chase':
+          // Chase the player but maintain some distance
+          if (target?.current?.position) {
+            const playerPos = target.current.position.clone();
+            const dirToPlayer = playerPos.clone().sub(currentPosition.current).normalize();
+            const idealDistance = 6; // Distance to maintain from player
+            const currentDistance = currentPosition.current.distanceTo(playerPos);
+            
+            // If too close, move away slightly
+            if (currentDistance < idealDistance * 0.7) {
+              dirToPlayer.multiplyScalar(-1); // Move away
+            }
+            
+            // Set target slightly offset from player's position
+            targetPosition.current.set(
+              playerPos.x + dirToPlayer.x * idealDistance,
+              position[1] + 1 + Math.sin(elapsedTime * 0.7) * movementHeightVariation,
+              playerPos.z + dirToPlayer.z * idealDistance
+            );
+          }
+          break;
+          
+        case 'zigzag':
+          // Zigzag around the arena
+          const zigzagFrequency = 1;
+          const zigzagAmplitude = 8;
+          targetPosition.current.set(
+            Math.sin(elapsedTime * zigzagFrequency) * zigzagAmplitude,
+            position[1] + 1 + Math.sin(elapsedTime * 0.3) * movementHeightVariation,
+            Math.cos(elapsedTime * zigzagFrequency * 0.7) * zigzagAmplitude
+          );
+          break;
+      }
+      
+      // Ensure the automaton stays within the arena boundaries
+      const boundaryLimit = arenaSize / 2 - 2; // Keep a little distance from edge
+      targetPosition.current.x = MathUtils.clamp(targetPosition.current.x, -boundaryLimit, boundaryLimit);
+      targetPosition.current.z = MathUtils.clamp(targetPosition.current.z, -boundaryLimit, boundaryLimit);
+    };
     
     // Apply effects and setup on mount
     useEffect(() => {
@@ -183,9 +274,9 @@ export const EtherealAutomaton = forwardRef<any, EtherealAutomatonProps>(
       // Calculate spawn position (slightly in front of automaton)
       const targetPos = target.current.position.clone();
       const dirToPlayer = new Vector3(
-        targetPos.x - centerPosition.x,
+        targetPos.x - currentPosition.current.x,
         0,
-        targetPos.z - centerPosition.z
+        targetPos.z - currentPosition.current.z
       );
       
       // Safety check - if direction length is too small, use a default direction
@@ -218,16 +309,16 @@ export const EtherealAutomaton = forwardRef<any, EtherealAutomatonProps>(
         
         // Calculate spawn position with safety checks
         const spawnPosition: [number, number, number] = [
-          centerPosition.x + rotatedDir.x * spawnOffset,
+          currentPosition.current.x + rotatedDir.x * spawnOffset,
           position[1] + spawnY, // Use the component's base position for consistency
-          centerPosition.z + rotatedDir.z * spawnOffset
+          currentPosition.current.z + rotatedDir.z * spawnOffset
         ];
         
         // Double check for NaN values
         if (isNaN(spawnPosition[0]) || isNaN(spawnPosition[2])) {
           console.error("Invalid projectile position detected, using fallback", spawnPosition);
-          spawnPosition[0] = centerPosition.x;
-          spawnPosition[2] = centerPosition.z;
+          spawnPosition[0] = currentPosition.current.x;
+          spawnPosition[2] = currentPosition.current.z;
         }
         
         // Get target position with proper y height to avoid ground shots
@@ -237,9 +328,9 @@ export const EtherealAutomaton = forwardRef<any, EtherealAutomatonProps>(
         // Add variation to the target position for spread
         const targetDistance = 20; // Target point is 20 units away in the direction
         const spreadTargetPos = new Vector3(
-          centerPosition.x + rotatedDir.x * targetDistance,
+          currentPosition.current.x + rotatedDir.x * targetDistance,
           projTargetPos.y,
-          centerPosition.z + rotatedDir.z * targetDistance
+          currentPosition.current.z + rotatedDir.z * targetDistance
         );
         
         // Add new projectile to the array
@@ -290,12 +381,12 @@ export const EtherealAutomaton = forwardRef<any, EtherealAutomatonProps>(
             
             // Sink into ground
             const sinkProgress = Math.min(defeatTime / defeatAnimationDuration, 1);
-            const newY = position[1] + 1 - sinkProgress * 3;
+            const newY = currentPosition.current.y - sinkProgress * 3;
             
             // Update position
             // @ts-ignore
             rigidBody.current.setTranslation(
-              new Vector3(centerPosition.x, newY, centerPosition.z), 
+              new Vector3(currentPosition.current.x, newY, currentPosition.current.z), 
               true
             );
             
@@ -334,18 +425,25 @@ export const EtherealAutomaton = forwardRef<any, EtherealAutomatonProps>(
         return;
       }
       
-      // Set position to center (fixed position)
+      // Calculate new target position for movement
+      updateTargetPosition(elapsedTime);
+      
+      // Move towards target position
+      const lerpFactor = 0.05; // Smoothness of movement
+      currentPosition.current.lerp(targetPosition.current, lerpFactor);
+      
+      // Update position
       // @ts-ignore - using the setTranslation method which might not be in the type definitions
-      rigidBody.current.setTranslation(centerPosition, true);
+      rigidBody.current.setTranslation(currentPosition.current, true);
       
       // Get player position
       const playerPosition = target.current.position.clone();
       
       // Calculate direction to player
       const direction = new Vector3(
-        playerPosition.x - centerPosition.x,
+        playerPosition.x - currentPosition.current.x,
         0, // Keep Y rotation level
-        playerPosition.z - centerPosition.z
+        playerPosition.z - currentPosition.current.z
       );
       
       // Skip if direction is too small
