@@ -1,11 +1,11 @@
 import React from 'react';
 import { useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Vector3, Quaternion, MathUtils, Ray } from 'three';
-import { CapsuleCollider, RigidBody, RigidBodyApi, useRapier } from '@react-three/rapier';
+import { Vector3, MathUtils, Ray } from 'three';
+import { CapsuleCollider, RigidBody } from '@react-three/rapier';
 import { useKeyboardControls } from '@react-three/drei';
 import { useCharacterControls } from '../hooks/useCharacterControls';
-import { calculateMovement, createJumpImpulse, createFallForce, createMovementVelocity } from '../utils/physics';
+import { calculateMovement, createJumpImpulse, createMovementVelocity } from '../utils/physics';
 import { useMobileControls } from '../contexts/MobileControlsContext';
 import { CharacterModel } from './CharacterModel';
 
@@ -18,9 +18,8 @@ export type CharacterState = {
 };
 
 export const CharacterController = React.forwardRef<any>((_, ref) => {
-  const rigidBody = useRef<RigidBodyApi>(null);
-  const modelRef = useRef<THREE.Group>(null);
-  const { rapier, world } = useRapier();
+  const rigidBody = useRef<any>(null);
+  const modelRef = useRef<any>(null);
   const { isJumping: isMobileJumping, movement: mobileMovement } = useMobileControls();
   const [, getKeys] = useKeyboardControls();
   const [isSprinting, setIsSprinting] = useState(false);
@@ -42,57 +41,20 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
   useFrame(() => {
     if (!rigidBody.current) return;
 
-    // Cast multiple rays for better ground detection
+    // Get current translation and velocity
     const translation = rigidBody.current.translation();
-    const rayLength = 1.5; // Increased length for better detection
-    const rayDir = { x: 0, y: -1, z: 0 };
+    const linvel = rigidBody.current.linvel();
     
-    // Cast rays from multiple points around the character
-    const rayOffsets = [
-      { x: 0, z: 0 },      // Center
-      { x: 0.3, z: 0 },    // Right
-      { x: -0.3, z: 0 },   // Left
-      { x: 0, z: 0.3 },    // Front
-      { x: 0, z: -0.3 },   // Back
-    ];
+    // Simplified ground detection - just check if we're close to the ground
+    // and have minimal vertical velocity
+    const height = translation.y;
+    const verticalVelocity = Math.abs(linvel.y);
     
-    let isGrounded = false;
-    let closestHit = null;
+    // Consider grounded if close to a surface and not moving quickly upward
+    const isGrounded = height < 1.8 && verticalVelocity < 3;
     
-    for (const offset of rayOffsets) {
-      const ray = new rapier.Ray(
-        { 
-          x: translation.x + offset.x, 
-          y: translation.y, 
-          z: translation.z + offset.z 
-        },
-        rayDir
-      );
-      
-      const hit = world.castRay(
-        ray,
-        rayLength,
-        true,
-        undefined,
-        undefined,
-        undefined,
-        rigidBody.current
-      );
-      
-      if (hit && (!closestHit || hit.toi < closestHit.toi)) {
-        closestHit = hit;
-        isGrounded = true;
-      }
-    }
-
-    // Log ground state changes
-    // if (isGrounded !== state.isGrounded) {
-      // console.log(`Ground state changed: ${isGrounded ? 'Grounded' : 'In Air'}`);
-    // }
-
     const input = getKeys();
     const shouldJump = input.jump || isMobileJumping;
-    const linvel = rigidBody.current.linvel();
     const currentPos = new Vector3(
       translation.x,
       translation.y,
@@ -129,23 +91,30 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
     }
 
     // Handle movement
-    let movement = calculateMovement(input, controls.moveSpeed);
+    const movement = {
+      forward: input.forward || false,
+      backward: input.backward || false,
+      left: input.left || false,
+      right: input.right || false,
+      sprint: input.sprint || false
+    };
     
     // Override keyboard movement with mobile joystick if active
     if (Math.abs(mobileMovement.x) > 0 || Math.abs(mobileMovement.y) > 0) {
-      movement = {
-        sprint: false,
-        normalizedX: mobileMovement.x,
-        normalizedZ: mobileMovement.y
-      };
+      movement.forward = mobileMovement.y < 0;
+      movement.backward = mobileMovement.y > 0;
+      movement.left = mobileMovement.x < 0;
+      movement.right = mobileMovement.x > 0;
     }
     
-    if (movement) {
-      const sprintMultiplier = movement.sprint ? controls.sprintMultiplier : 1;
+    const calculatedMovement = calculateMovement(movement, controls.moveSpeed);
+    
+    if (calculatedMovement) {
+      const sprintMultiplier = calculatedMovement.sprint ? controls.sprintMultiplier : 1;
       const moveForce = controls.moveSpeed * (isGrounded ? 1 : controls.airControl);
       let velocity = createMovementVelocity(
-        movement.normalizedX,
-        movement.normalizedZ,
+        calculatedMovement.normalizedX,
+        calculatedMovement.normalizedZ,
         moveForce * sprintMultiplier,
         linvel.y
       );
@@ -171,20 +140,6 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
         createJumpImpulse(controls.jumpForce, { y: linvel.y }),
         true
       );
-    }
-
-    // Ground snapping
-    if (isGrounded && !input.jump) {
-      const snapForce = createFallForce(0.5);
-      rigidBody.current.applyImpulse(snapForce, true);
-      
-      if (closestHit && closestHit.point) {
-        const targetY = closestHit.point.y + 1.2; // Keep character at proper height
-        rigidBody.current.setTranslation(
-          { x: translation.x, y: targetY, z: translation.z },
-          true
-        );
-      }
     }
     
     // Store position for next frame
@@ -220,7 +175,7 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
       ref={rigidBody}
       colliders={false}
       mass={10}
-      position={[0, 6, 1]}
+      position={[0, 8, 10]}
       enabledRotations={[false, false, false]}
       lockRotations
       gravityScale={3}
@@ -229,11 +184,11 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
       angularDamping={controls.angularDamping}
       restitution={0}
       ccd={true}
-      maxCcdSubsteps={2}
-      type="kinematicPositionBased"
+      type="dynamic"
+      userData={{ isPlayer: true }}
     >
-      <CapsuleCollider args={[0.8, 0.4]} offset={[0, 1.2, 0]} />
-      <group ref={modelRef} position={[0, -1.15, 0]} scale={1.5}>
+      <CapsuleCollider args={[0.8, 0.6]} position={[0, 1.4, 0]} />
+      <group ref={modelRef} position={[0, -0.8, 0]} scale={1.5}>
         <CharacterModel 
           isMoving={isMoving} 
           isSprinting={isSprinting} 
