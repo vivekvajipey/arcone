@@ -25,6 +25,7 @@ import { usePostProcessingControls } from './hooks/usePostProcessingControls';
 import { Leva } from 'leva';
 import { MobileControlsProvider } from './contexts/MobileControlsContext';
 import { MobileControls } from './components/MobileControls';
+import { EtherealAutomaton } from './components/EtherealAutomaton';
 
 const characterRef = { current: null };
 
@@ -78,17 +79,17 @@ function App() {
         >
           <Canvas shadows>
           <Environment
-            preset="sunset"
-            intensity={1}
+            preset="night"
             background
-            blur={0.8}
+            blur={0.5}
             resolution={256}
           />
-          <ambientLight intensity={lighting.ambientIntensity} />
+          <fog attach="fog" args={['#05071a', 15, 80]} />
+          <ambientLight intensity={lighting.ambientIntensity * 0.5} color="#6080FF" />
           <directionalLight
             castShadow
             position={[lighting.directionalDistance, lighting.directionalHeight, lighting.directionalDistance / 2]}
-            intensity={lighting.directionalIntensity}
+            intensity={lighting.directionalIntensity * 0.7}
             shadow-mapSize={[4096, 4096]}
             shadow-camera-left={-30}
             shadow-camera-right={30}
@@ -98,6 +99,13 @@ function App() {
             shadow-bias={-0.0001}
             shadow-normalBias={0.02}
           />
+          <pointLight
+            position={[0, 10, 0]}
+            intensity={2}
+            color="#80A0FF"
+            distance={40}
+            castShadow
+          />
           <Physics 
             interpolate={false}
             positionIterations={5}
@@ -105,6 +113,10 @@ function App() {
           >
             <CharacterController ref={characterRef} />
             <Ground />
+            <EtherealAutomaton 
+              position={[0, 2, -10]} 
+              target={characterRef}
+            />
             {/* <Balls /> - Removed blue spheres from startup, component still available in src/components/Balls.tsx */}
           </Physics>
           <FollowCamera target={characterRef} />
@@ -117,19 +129,20 @@ function App() {
             />
             {postProcessing.bloomEnabled && (
               <Bloom 
-                intensity={postProcessing.bloomIntensity}
+                intensity={postProcessing.bloomIntensity} 
               />
             )}
             {postProcessing.chromaticAberrationEnabled && (
               <ChromaticAberration
                 offset={[postProcessing.chromaticAberrationOffset, postProcessing.chromaticAberrationOffset]}
-                blendFunction={BlendFunction.NORMAL}
+                radialModulation={true}
+                modulationOffset={0.5}
               />
             )}
             {postProcessing.vignetteEnabled && (
               <Vignette
-                darkness={postProcessing.vignetteDarkness}
                 offset={postProcessing.vignetteOffset}
+                darkness={postProcessing.vignetteDarkness}
                 blendFunction={BlendFunction.NORMAL}
               />
             )}
@@ -137,20 +150,18 @@ function App() {
               <BrightnessContrast
                 brightness={postProcessing.brightness}
                 contrast={postProcessing.contrast}
-                blendFunction={BlendFunction.NORMAL}
               />
             )}
             {postProcessing.hueSaturationEnabled && (
               <HueSaturation
                 hue={postProcessing.hue}
                 saturation={postProcessing.saturation}
-                blendFunction={BlendFunction.NORMAL}
               />
             )}
             <SMAA />
           </EffectComposer>
-        </Canvas>
-      </KeyboardControls>
+          </Canvas>
+        </KeyboardControls>
       </MobileControlsProvider>
     </div>
   );
