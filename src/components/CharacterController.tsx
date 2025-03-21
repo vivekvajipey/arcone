@@ -88,7 +88,7 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
   const attackStartTime = useRef(0);
   const attackCooldown = 0.5; // Time between attacks in seconds
   const lastAttackTime = useRef(0);
-  const attackRadius = 2.5; // Attack radius in units
+  const attackRadius = 4.0; // Increased attack radius (was 2.5)
   const attackDamage = 15; // Base attack damage
   const maxChargeTime = 1.5; // Time to reach max charge (seconds)
   const maxChargeDamageMultiplier = 3; // Multiplier for fully charged attacks
@@ -164,13 +164,9 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
           // Calculate distance
           const distance = playerPos.distanceTo(automatonPos);
           
-          // Check if automaton is in front of player (dot product with attack direction)
-          const toAutomaton = automatonPos.clone().sub(playerPos).normalize();
-          const facingFactor = attackDirection.dot(toAutomaton);
-          
-          // If automaton is in attack range and in front of player
-          if (distance < finalRadius && facingFactor > 0.3) {
-            console.log(`Hit automaton! Distance: ${distance.toFixed(2)}, Facing: ${facingFactor.toFixed(2)}`);
+          // 360-degree attack - no direction check needed, just distance
+          if (distance < finalRadius) {
+            console.log(`Hit automaton! Distance: ${distance.toFixed(2)}`);
             
             // Apply damage
             damageAutomaton(finalDamage);
@@ -178,7 +174,8 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
             
             // Apply "knockback" by moving player slightly back
             if (charged && chargeLevel > 0.5) {
-              const knockbackForce = -2 * chargeLevel; // Negative to move back
+              // For 360 attack, knockback is reduced to avoid confusion
+              const knockbackForce = -1 * chargeLevel; // Negative to move back
               const newPos = {
                 x: translation.x + attackDirection.x * knockbackForce,
                 y: translation.y,
@@ -489,49 +486,53 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
       {(showAttackEffect || slashScale.current > 0) && (
         <group
           position={[
-            rigidBody.current.translation().x + Math.sin(currentRotation.current) * 1.5,
+            rigidBody.current.translation().x,
             rigidBody.current.translation().y + 1,
-            rigidBody.current.translation().z + Math.cos(currentRotation.current) * 1.5
+            rigidBody.current.translation().z
           ]}
-          rotation={[0, currentRotation.current, 0]}
           scale={[slashScale.current, slashScale.current, slashScale.current]}
         >
-          {/* Slash arc effect */}
-          <mesh rotation={[Math.PI/2, 0, -slashRotation.current * 0.1]}>
-            <planeGeometry args={[2.5, 2.5]} />
+          {/* 360 Slash effect - ring around player */}
+          <mesh rotation={[Math.PI/2, 0, slashRotation.current * 0.05]}>
+            <ringGeometry args={[
+              isCharging && chargeLevel > 0.5 ? 3.0 : 2.0, // Inner radius
+              isCharging && chargeLevel > 0.5 ? 4.2 : 3.5, // Outer radius
+              32, // Segments
+              1,  // Theta segments
+              0,  // Theta start
+              Math.PI * 2 // Theta length (full circle)
+            ]} />
             <meshBasicMaterial 
               side={2} // DoubleSide
               transparent={true}
               depthWrite={false}
-              map={createSlashTexture(
-                isCharging && chargeLevel > 0.5 ? "#ff3300" : "#4488ff", 
-                isCharging && chargeLevel > 0.5 ? 0.9 : 0.6
-              )}
-              opacity={slashScale.current}
+              color={isCharging && chargeLevel > 0.5 ? "#ff3300" : "#4488ff"} 
+              opacity={slashScale.current * 0.6}
             />
           </mesh>
           
-          {/* Second slash for charged attacks */}
-          {isCharging && chargeLevel > 0.5 && (
-            <mesh 
-              rotation={[Math.PI/2, 0, -Math.PI/6 - slashRotation.current * 0.05]} 
-              position={[0, 0.2, 0]}
-              scale={[1.2, 1.2, 1.2]}
-            >
-              <planeGeometry args={[2.5, 2.5]} />
-              <meshBasicMaterial 
-                side={2} // DoubleSide
-                transparent={true}
-                depthWrite={false}
-                map={createSlashTexture("#ff6600", 0.8)}
-                opacity={slashScale.current * 0.8}
-              />
-            </mesh>
-          )}
+          {/* Wave effect for attack */}
+          <mesh rotation={[Math.PI/2, 0, -slashRotation.current * 0.1]}>
+            <ringGeometry args={[
+              0.1, // Inner radius (almost center)
+              isCharging && chargeLevel > 0.5 ? 4.5 : 3.8, // Outer radius (expanded)
+              32, // Segments
+              1,  // Theta segments
+              0,  // Theta start
+              Math.PI * 2 // Theta length (full circle)
+            ]} />
+            <meshBasicMaterial 
+              side={2} // DoubleSide
+              transparent={true}
+              depthWrite={false}
+              color={isCharging && chargeLevel > 0.5 ? "#ff6600" : "#00aaff"} 
+              opacity={slashScale.current * 0.4}
+            />
+          </mesh>
           
           {/* Energy core at center of slash */}
           <mesh>
-            <sphereGeometry args={[0.3, 16, 16]} />
+            <sphereGeometry args={[0.5, 16, 16]} />
             <meshBasicMaterial 
               color={isCharging && chargeLevel > 0.5 ? "#ff6600" : "#00aaff"} 
               transparent={true}
@@ -539,26 +540,30 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
             />
           </mesh>
           
-          {/* Particles for heavy attacks */}
+          {/* Particles for heavy attacks - now spread in a circle */}
           {isCharging && chargeLevel > 0.8 && (
             <>
-              {[...Array(8)].map((_, i) => (
-                <mesh 
-                  key={i}
-                  position={[
-                    Math.sin(slashRotation.current * 0.2 + i) * 1.5,
-                    Math.cos(slashRotation.current * 0.2 + i) * 0.8,
-                    Math.sin(slashRotation.current * 0.1 + i * 0.5) * 0.5
-                  ]}
-                >
-                  <sphereGeometry args={[0.15, 8, 8]} />
-                  <meshBasicMaterial 
-                    color="#ffaa00" 
-                    transparent={true}
-                    opacity={0.8 * slashScale.current}
-                  />
-                </mesh>
-              ))}
+              {[...Array(12)].map((_, i) => {
+                const angle = (i / 12) * Math.PI * 2;
+                const radius = 3.5 + Math.sin(slashRotation.current * 0.1 + i) * 0.5;
+                return (
+                  <mesh 
+                    key={i}
+                    position={[
+                      Math.sin(angle) * radius,
+                      Math.cos(slashRotation.current * 0.2 + i) * 0.8,
+                      Math.cos(angle) * radius
+                    ]}
+                  >
+                    <sphereGeometry args={[0.2, 8, 8]} />
+                    <meshBasicMaterial 
+                      color="#ffaa00" 
+                      transparent={true}
+                      opacity={0.8 * slashScale.current}
+                    />
+                  </mesh>
+                );
+              })}
             </>
           )}
         </group>
