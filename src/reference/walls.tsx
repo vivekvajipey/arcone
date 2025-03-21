@@ -40,4 +40,3 @@
     side={DoubleSide}
   />
 </mesh>
-</RigidBody>
