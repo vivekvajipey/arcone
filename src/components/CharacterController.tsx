@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Vector3, MathUtils, Ray } from 'three';
+import { Vector3, MathUtils, Ray, CanvasTexture } from 'three';
 import { CapsuleCollider, RigidBody, useRapier } from '@react-three/rapier';
 import { useKeyboardControls } from '@react-three/drei';
 import { useCharacterControls } from '../hooks/useCharacterControls';
@@ -15,6 +15,56 @@ export type CharacterState = {
   airControl: number;
   isGrounded: boolean;
   velocity: { x: number; y: number; z: number };
+};
+
+// Helper function to create slash texture
+const createSlashTexture = (color: string, intensity: number) => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const context = canvas.getContext('2d');
+  
+  if (!context) return null;
+  
+  // Clear canvas
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  
+  // Create gradient for slash
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+  const radius = canvas.width * 0.4;
+  
+  // Draw slash arc
+  context.beginPath();
+  context.arc(centerX, centerY, radius, 0, Math.PI * 1.5, false);
+  context.lineWidth = 40;
+  context.strokeStyle = color;
+  context.stroke();
+  
+  // Add glow effect
+  const glowSize = 20;
+  const gradient = context.createRadialGradient(
+    centerX, centerY, radius - glowSize,
+    centerX, centerY, radius + glowSize
+  );
+  gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
+  gradient.addColorStop(0.5, `${color}${Math.floor(intensity * 255).toString(16).padStart(2, '0')}`);
+  gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  
+  context.beginPath();
+  context.arc(centerX, centerY, radius, 0, Math.PI * 1.5, false);
+  context.lineWidth = 80;
+  context.strokeStyle = gradient;
+  context.stroke();
+  
+  // Edge highlight
+  context.beginPath();
+  context.arc(centerX, centerY, radius, 0, Math.PI * 1.5, false);
+  context.lineWidth = 2;
+  context.strokeStyle = 'white';
+  context.stroke();
+  
+  return new CanvasTexture(canvas);
 };
 
 export const CharacterController = React.forwardRef<any>((_, ref) => {
@@ -58,6 +108,10 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
     isGrounded: false,
     velocity: { x: 0, y: 0, z: 0 },
   });
+
+  // Add slash animation state
+  const slashRotation = useRef(0);
+  const slashScale = useRef(0);
 
   const controls = useCharacterControls();
   
@@ -197,7 +251,7 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
     prevHealthRef.current = playerHealth;
   }, [playerHealth]);
 
-  useFrame(() => {
+  useFrame((state, delta) => {
     if (!rigidBody.current) return;
 
     // Get current translation and velocity
@@ -368,6 +422,14 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
       prevPosition.current.copy(currentPos);
     }
 
+    // Animate slash effect if showing
+    if (showAttackEffect) {
+      slashRotation.current += delta * (isCharging && chargeLevel > 0.5 ? 10 : 15);
+      slashScale.current = Math.min(1, slashScale.current + delta * 10);
+    } else {
+      slashScale.current = Math.max(0, slashScale.current - delta * 10);
+    }
+
     setState({ 
       moveSpeed: controls.moveSpeed, 
       jumpForce: controls.jumpForce, 
@@ -424,24 +486,82 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
       </RigidBody>
       
       {/* Attack visualization/effect */}
-      {showAttackEffect && (
-        <mesh
+      {(showAttackEffect || slashScale.current > 0) && (
+        <group
           position={[
             rigidBody.current.translation().x + Math.sin(currentRotation.current) * 1.5,
             rigidBody.current.translation().y + 1,
             rigidBody.current.translation().z + Math.cos(currentRotation.current) * 1.5
           ]}
           rotation={[0, currentRotation.current, 0]}
+          scale={[slashScale.current, slashScale.current, slashScale.current]}
         >
-          <coneGeometry args={[isCharging && chargeLevel > 0.5 ? 1.5 : 1, 3, 16]} />
-          <meshStandardMaterial 
-            color={isCharging && chargeLevel > 0.5 ? "#ff3300" : "#4488ff"} 
-            emissive={isCharging && chargeLevel > 0.5 ? "#ff3300" : "#4488ff"}
-            emissiveIntensity={3} 
-            transparent={true} 
-            opacity={0.6} 
-          />
-        </mesh>
+          {/* Slash arc effect */}
+          <mesh rotation={[Math.PI/2, 0, -slashRotation.current * 0.1]}>
+            <planeGeometry args={[2.5, 2.5]} />
+            <meshBasicMaterial 
+              side={2} // DoubleSide
+              transparent={true}
+              depthWrite={false}
+              map={createSlashTexture(
+                isCharging && chargeLevel > 0.5 ? "#ff3300" : "#4488ff", 
+                isCharging && chargeLevel > 0.5 ? 0.9 : 0.6
+              )}
+              opacity={slashScale.current}
+            />
+          </mesh>
+          
+          {/* Second slash for charged attacks */}
+          {isCharging && chargeLevel > 0.5 && (
+            <mesh 
+              rotation={[Math.PI/2, 0, -Math.PI/6 - slashRotation.current * 0.05]} 
+              position={[0, 0.2, 0]}
+              scale={[1.2, 1.2, 1.2]}
+            >
+              <planeGeometry args={[2.5, 2.5]} />
+              <meshBasicMaterial 
+                side={2} // DoubleSide
+                transparent={true}
+                depthWrite={false}
+                map={createSlashTexture("#ff6600", 0.8)}
+                opacity={slashScale.current * 0.8}
+              />
+            </mesh>
+          )}
+          
+          {/* Energy core at center of slash */}
+          <mesh>
+            <sphereGeometry args={[0.3, 16, 16]} />
+            <meshBasicMaterial 
+              color={isCharging && chargeLevel > 0.5 ? "#ff6600" : "#00aaff"} 
+              transparent={true}
+              opacity={slashScale.current * 0.8}
+            />
+          </mesh>
+          
+          {/* Particles for heavy attacks */}
+          {isCharging && chargeLevel > 0.8 && (
+            <>
+              {[...Array(8)].map((_, i) => (
+                <mesh 
+                  key={i}
+                  position={[
+                    Math.sin(slashRotation.current * 0.2 + i) * 1.5,
+                    Math.cos(slashRotation.current * 0.2 + i) * 0.8,
+                    Math.sin(slashRotation.current * 0.1 + i * 0.5) * 0.5
+                  ]}
+                >
+                  <sphereGeometry args={[0.15, 8, 8]} />
+                  <meshBasicMaterial 
+                    color="#ffaa00" 
+                    transparent={true}
+                    opacity={0.8 * slashScale.current}
+                  />
+                </mesh>
+              ))}
+            </>
+          )}
+        </group>
       )}
       
       {/* Charge indicator */}

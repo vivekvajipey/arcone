@@ -30,6 +30,7 @@ import { EtherealAutomaton } from './components/EtherealAutomaton';
 import { HealthBarsWrapper } from './components/HealthBarsWrapper';
 import { CombatManager } from './components/CombatManager';
 import { DeathScreen } from './components/DeathScreen';
+import { VictoryScreen } from './components/VictoryScreen';
 
 function DynamicDepthOfField({ 
   enabled, 
@@ -155,6 +156,7 @@ function App() {
       <Leva collapsed />
       <HealthBarsWrapper>
         <DeathScreen />
+        <VictoryScreen />
         <MobileControlsProvider>
           <MobileControls />
           <KeyboardControls
@@ -165,7 +167,7 @@ function App() {
               { name: 'right', keys: ['ArrowRight', 'd', 'D'] },
               { name: 'jump', keys: ['Space'] },
               { name: 'sprint', keys: ['ShiftLeft', 'ShiftRight'] },
-              { name: 'attack', keys: ['f', 'F'] },
+              { name: 'attack', keys: ['j', 'J'] },
             ]}
           >
             <Canvas shadows>

@@ -20,8 +20,13 @@ export const EtherealAutomaton = forwardRef<any, EtherealAutomatonProps>(
     const group = useRef<Group>(null);
     const rigidBody = useRef(null);
     const [modelLoaded, setModelLoaded] = useState(false);
-    const { automatonHealth } = useHealth();
+    const { automatonHealth, isVictory } = useHealth();
     const clock = useRef(new Clock());
+    
+    // Track defeated animation
+    const [isDefeated, setIsDefeated] = useState(false);
+    const defeatAnimationStart = useRef(0);
+    const defeatAnimationDuration = 2.0; // seconds
     
     // Projectile state
     const [projectiles, setProjectiles] = useState<Array<{
@@ -72,9 +77,11 @@ export const EtherealAutomaton = forwardRef<any, EtherealAutomatonProps>(
       }
       
       // Handle any effects when health changes
-      if (automatonHealth <= 0) {
+      if (automatonHealth <= 0 && !isDefeated) {
         // Handle automaton death
         console.log('Automaton defeated!');
+        setIsDefeated(true);
+        defeatAnimationStart.current = clock.current.getElapsedTime();
       }
       
       // Update previous health reference
@@ -271,6 +278,62 @@ export const EtherealAutomaton = forwardRef<any, EtherealAutomatonProps>(
       
       const elapsedTime = clock.current.getElapsedTime();
       
+      // Handle defeat animation
+      if (isDefeated) {
+        const defeatTime = elapsedTime - defeatAnimationStart.current;
+        
+        if (defeatTime < defeatAnimationDuration) {
+          // Play defeat animation
+          if (group.current) {
+            // Rotate and sink into the ground
+            group.current.rotation.y += 0.1;
+            
+            // Sink into ground
+            const sinkProgress = Math.min(defeatTime / defeatAnimationDuration, 1);
+            const newY = position[1] + 1 - sinkProgress * 3;
+            
+            // Update position
+            // @ts-ignore
+            rigidBody.current.setTranslation(
+              new Vector3(centerPosition.x, newY, centerPosition.z), 
+              true
+            );
+            
+            // Scale down
+            const scaleDown = 1 - sinkProgress * 0.5;
+            group.current.scale.set(
+              scale * 10 * scaleDown,
+              scale * 10 * scaleDown,
+              scale * 10 * scaleDown
+            );
+            
+            // Make it glow red then fade out
+            group.current.traverse((child: any) => {
+              if (child.isMesh && child.material) {
+                const materials = Array.isArray(child.material) ? child.material : [child.material];
+                
+                materials.forEach((material: any) => {
+                  if (material instanceof MeshStandardMaterial) {
+                    // Start with bright red, then fade to black
+                    const initialPhase = Math.min(defeatTime * 2, 1); // First half - turn red
+                    const fadePhase = Math.max(0, Math.min((defeatTime - 0.5) * 2, 1)); // Second half - fade out
+                    
+                    material.emissive.set('#ff0000');
+                    material.emissiveIntensity = 2 * (1 - fadePhase);
+                    material.opacity = 1 - fadePhase;
+                    material.transparent = true;
+                    material.needsUpdate = true;
+                  }
+                });
+              }
+            });
+          }
+        }
+        
+        // Don't do normal shooting behavior when defeated
+        return;
+      }
+      
       // Set position to center (fixed position)
       // @ts-ignore - using the setTranslation method which might not be in the type definitions
       rigidBody.current.setTranslation(centerPosition, true);
@@ -302,15 +365,18 @@ export const EtherealAutomaton = forwardRef<any, EtherealAutomatonProps>(
         
         // Apply smooth rotation (lerp)
         group.current.rotation.y += angleDiff * 0.1; // Adjust speed as needed
-        
-        // Check if startup delay has passed
-        const gameRunTime = Date.now() - gameStartTime.current;
-        if (gameRunTime < startupDelay) return;
-        
-        // Shoot when cooldown expired
-        if (elapsedTime - lastShotTime.current > shotCooldown) {
-          shootProjectile();
-        }
+      }
+      
+      // Don't shoot if player has won
+      if (isVictory) return;
+      
+      // Check if startup delay has passed
+      const gameRunTime = Date.now() - gameStartTime.current;
+      if (gameRunTime < startupDelay) return;
+      
+      // Shoot when cooldown expired
+      if (elapsedTime - lastShotTime.current > shotCooldown) {
+        shootProjectile();
       }
     });
     

@@ -11,9 +11,11 @@ type HealthContextType = {
   healAutomaton: (amount: number) => void;
   resetHealth: () => void;
   isPlayerDead: boolean;
+  isVictory: boolean;
   score: number;
   incrementScore: (points: number) => void;
   resetScore: () => void;
+  resetGameState: () => void;
 };
 
 const HealthContext = createContext<HealthContextType | null>(null);
@@ -34,9 +36,12 @@ export const HealthProvider: React.FC<HealthProviderProps> = ({
   const [automatonHealth, setAutomatonHealth] = useState(initialAutomatonHealth);
   const [automatonMaxHealth] = useState(initialAutomatonHealth);
   const [isPlayerDead, setIsPlayerDead] = useState(false);
+  const [isVictory, setIsVictory] = useState(false);
   const [score, setScore] = useState(0);
 
   const damagePlayer = (amount: number) => {
+    if (isVictory) return; // Don't take damage after victory
+    
     setPlayerHealth((prev) => {
       const newHealth = Math.max(0, prev - amount);
       if (newHealth === 0) {
@@ -47,12 +52,22 @@ export const HealthProvider: React.FC<HealthProviderProps> = ({
   };
 
   const damageAutomaton = (amount: number) => {
+    if (isPlayerDead) return; // Don't deal damage if player is dead
+    
     setAutomatonHealth((prev) => {
       const newHealth = Math.max(0, prev - amount);
       // Give player points when they damage the automaton
       if (amount > 0) {
         incrementScore(Math.ceil(amount));
       }
+      
+      // Check for victory
+      if (newHealth === 0 && prev > 0) {
+        setIsVictory(true);
+        // Add victory bonus points
+        incrementScore(500);
+      }
+      
       return newHealth;
     });
   };
@@ -66,12 +81,16 @@ export const HealthProvider: React.FC<HealthProviderProps> = ({
 
   const healAutomaton = (amount: number) => {
     setAutomatonHealth((prev) => Math.min(automatonMaxHealth, prev + amount));
+    if (isVictory && amount > 0) {
+      setIsVictory(false);
+    }
   };
 
   const resetHealth = () => {
     setPlayerHealth(playerMaxHealth);
     setAutomatonHealth(automatonMaxHealth);
     setIsPlayerDead(false);
+    setIsVictory(false);
   };
 
   const incrementScore = (points: number) => {
@@ -80,6 +99,11 @@ export const HealthProvider: React.FC<HealthProviderProps> = ({
 
   const resetScore = () => {
     setScore(0);
+  };
+  
+  const resetGameState = () => {
+    resetHealth();
+    resetScore();
   };
 
   return (
@@ -95,9 +119,11 @@ export const HealthProvider: React.FC<HealthProviderProps> = ({
         healAutomaton,
         resetHealth,
         isPlayerDead,
+        isVictory,
         score,
         incrementScore,
         resetScore,
+        resetGameState,
       }}
     >
       {children}
