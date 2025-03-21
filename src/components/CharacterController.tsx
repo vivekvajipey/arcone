@@ -86,9 +86,9 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
     }
 
     // Log ground state changes
-    if (isGrounded !== state.isGrounded) {
-      console.log(`Ground state changed: ${isGrounded ? 'Grounded' : 'In Air'}`);
-    }
+    // if (isGrounded !== state.isGrounded) {
+      // console.log(`Ground state changed: ${isGrounded ? 'Grounded' : 'In Air'}`);
+    // }
 
     const input = getKeys();
     const shouldJump = input.jump || isMobileJumping;

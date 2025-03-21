@@ -114,8 +114,9 @@ function App() {
             <CharacterController ref={characterRef} />
             <Ground />
             <EtherealAutomaton 
-              position={[0, 2, -10]} 
+              position={[0, 1, 0]} 
               target={characterRef}
+              scale={3}
             />
             {/* <Balls /> - Removed blue spheres from startup, component still available in src/components/Balls.tsx */}
           </Physics>

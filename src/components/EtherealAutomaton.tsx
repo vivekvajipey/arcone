@@ -42,23 +42,26 @@ export function EtherealAutomaton({ position = [0, 0, 0], scale = 2, target }: E
         // Clone the scene to avoid modifying the original
         const clonedScene = model.scene.clone();
         
-        // Apply ethereal materials
+        // Keep original materials but enable shadows
         clonedScene.traverse((child: any) => {
           if (child.isMesh) {
-            console.log("Applying material to mesh:", child.name);
+            console.log("Preserving original material for mesh:", child.name);
             child.castShadow = true;
             child.receiveShadow = true;
             
-            // Enhanced ethereal material with strong glow
-            child.material = new MeshStandardMaterial({
-              color: '#B0D0FF', // Light blue
-              emissive: '#6090FF', // Bright emissive blue
-              emissiveIntensity: 2.0, // Strong glow
-              metalness: 0.7,
-              roughness: 0.2,
-              transparent: true,
-              opacity: 0.9,
-            });
+            // Keep original material, don't replace it
+            // Just make sure it can cast/receive shadows properly
+            if (child.material) {
+              if (Array.isArray(child.material)) {
+                child.material.forEach((mat: any) => {
+                  if (mat) {
+                    mat.needsUpdate = true;
+                  }
+                });
+              } else {
+                child.material.needsUpdate = true;
+              }
+            }
           }
         });
         
@@ -119,13 +122,6 @@ export function EtherealAutomaton({ position = [0, 0, 0], scale = 2, target }: E
             />
           </mesh>
         )}
-        
-        {/* Glow effect light */}
-        <pointLight 
-          color="#80A0FF"
-          intensity={8}
-          distance={20}
-        />
       </group>
     </RigidBody>
   );
