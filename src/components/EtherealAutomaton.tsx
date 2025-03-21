@@ -1,210 +1,131 @@
-import { useRef, useEffect } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { RigidBody } from '@react-three/rapier';
-import { MeshStandardMaterial, Group, Vector3, Quaternion } from 'three';
-import { useGLTF, Trail, useAnimations, MeshDistortMaterial } from '@react-three/drei';
+import { Group, Vector3, MeshStandardMaterial, Clock, Object3D } from 'three';
+import { useGLTF } from '@react-three/drei';
 
 type EtherealAutomatonProps = {
   position?: [number, number, number];
   scale?: number;
-  target?: any; // The player target to track
+  target?: any;
 };
 
+// Pre-load the model
+useGLTF.preload('/models/automaton.glb');
+
 export function EtherealAutomaton({ position = [0, 0, 0], scale = 2, target }: EtherealAutomatonProps) {
-  // We'll use a placeholder model and enhance it with effects
-  // In a full implementation, you would import a custom model
-  const automaton = useRef<Group>(null);
-  const bodyRef = useRef<Group>(null);
-  const targetPosition = useRef(new Vector3());
-  const currentRotation = useRef(0);
+  const group = useRef<Group>(null);
+  const rigidBody = useRef(null);
+  const clock = useRef(new Clock());
+  const [modelLoaded, setModelLoaded] = useState(false);
   
-  // Animation parameters
-  const floatHeight = useRef(0);
-  const attackCooldown = useRef(0);
-  const isAttacking = useRef(false);
+  // Load the model
+  const model = useGLTF('/models/automaton.glb');
   
-  // Handle movement and attacks
-  useFrame((state, delta) => {
-    if (!automaton.current || !bodyRef.current) return;
-    
-    // Levitation effect
-    floatHeight.current += delta * 1.5;
-    automaton.current.position.y = position[1] + Math.sin(floatHeight.current) * 0.3 + 1;
-    
-    // Rotation effect
-    bodyRef.current.rotation.y += delta * 0.3;
-    
-    // Track the player if target is provided
-    if (target && target.current) {
-      targetPosition.current.copy(target.current.position);
+  // Apply effects and setup on mount
+  useEffect(() => {
+    if (model.scene && !modelLoaded) {
+      console.log("Loading automaton.glb model");
       
-      // Calculate direction to player
-      const direction = new Vector3()
-        .subVectors(targetPosition.current, automaton.current.position)
-        .normalize();
+      // Examine model structure for debugging
+      console.log("Model structure:", {
+        childrenCount: model.scene.children.length,
+        children: model.scene.children.map(child => ({
+          name: child.name,
+          type: child.type,
+          scale: child.scale ? child.scale.toArray() : null
+        }))
+      });
       
-      // Gradually rotate to face the player
-      const targetAngle = Math.atan2(direction.x, direction.z);
-      currentRotation.current = currentRotation.current + (targetAngle - currentRotation.current) * 0.05;
-      
-      automaton.current.rotation.y = currentRotation.current;
-      
-      // Attack behavior
-      if (attackCooldown.current <= 0) {
-        const distanceToPlayer = automaton.current.position.distanceTo(targetPosition.current);
+      // Function to prepare the model
+      const prepareModel = () => {
+        // Clone the scene to avoid modifying the original
+        const clonedScene = model.scene.clone();
         
-        if (distanceToPlayer < 10 && !isAttacking.current) {
-          isAttacking.current = true;
-          attackCooldown.current = 3; // 3 seconds cooldown
-          
-          // Attack animation
-          const originalScale = bodyRef.current.scale.clone();
-          
-          // Pulse effect for attack
-          const attackSequence = async () => {
-            for (let i = 0; i < 3; i++) {
-              if (bodyRef.current) {
-                bodyRef.current.scale.multiplyScalar(1.2);
-                await new Promise(r => setTimeout(r, 100));
-                bodyRef.current.scale.copy(originalScale);
-                await new Promise(r => setTimeout(r, 100));
-              }
-            }
-            isAttacking.current = false;
-          };
-          
-          attackSequence();
+        // Apply ethereal materials
+        clonedScene.traverse((child: any) => {
+          if (child.isMesh) {
+            console.log("Applying material to mesh:", child.name);
+            child.castShadow = true;
+            child.receiveShadow = true;
+            
+            // Enhanced ethereal material with strong glow
+            child.material = new MeshStandardMaterial({
+              color: '#B0D0FF', // Light blue
+              emissive: '#6090FF', // Bright emissive blue
+              emissiveIntensity: 2.0, // Strong glow
+              metalness: 0.7,
+              roughness: 0.2,
+              transparent: true,
+              opacity: 0.9,
+            });
+          }
+        });
+        
+        return clonedScene;
+      };
+      
+      // Prepare and add the model to the scene
+      if (group.current) {
+        const preparedModel = prepareModel();
+        
+        // Clear the group first
+        while (group.current.children.length > 0) {
+          group.current.remove(group.current.children[0]);
         }
-      } else {
-        attackCooldown.current -= delta;
+        
+        // Add the prepared model to the group
+        group.current.add(preparedModel);
+        setModelLoaded(true);
       }
+    }
+  }, [model.scene, modelLoaded]);
+  
+  // Simple rotation animation
+  useFrame((state) => {
+    const delta = clock.current.getDelta();
+    
+    // Rotate the model slowly
+    if (group.current) {
+      group.current.rotation.y += delta * 0.5;
+    }
+    
+    // Add a hovering effect
+    const elapsedTime = state.clock.getElapsedTime();
+    const hoverOffset = Math.sin(elapsedTime * 1.5) * 0.2;
+    if (group.current) {
+      group.current.position.y = hoverOffset;
     }
   });
   
   return (
     <RigidBody 
-      type="kinematicPosition"
-      colliders="ball"
-      position={[position[0], position[1] + 1, position[2]]}
-      mass={50}
+      ref={rigidBody}
+      type="fixed"
+      position={position}
     >
-      <group ref={automaton}>
-        {/* Core body with glowing effect */}
-        <group ref={bodyRef}>
-          <Trail
-            width={1.5}
-            length={8}
-            color="#80A0FF"
-            attenuation={(t) => t * t}
-          >
-            <mesh position={[0, 0, 0]}>
-              <sphereGeometry args={[0.8, 32, 32]} />
-              <MeshDistortMaterial
-                color="#FFFFFF"
-                emissive="#6080FF"
-                emissiveIntensity={2}
-                roughness={0.1}
-                metalness={0.9}
-                distort={0.3}
-                speed={2}
-              />
-            </mesh>
-          </Trail>
-          
-          {/* Outer armor plating */}
-          <mesh>
-            <torusGeometry args={[1.2, 0.1, 8, 16]} />
-            <meshStandardMaterial
-              color="#303030"
-              emissive="#505050"
-              roughness={0.1}
-              metalness={1}
+      <group 
+        ref={group} 
+        scale={[scale * 10, scale * 10, scale * 10]}
+      >
+        {/* Fallback box (will be replaced by model when loaded) */}
+        {!modelLoaded && (
+          <mesh castShadow receiveShadow>
+            <boxGeometry args={[1, 2, 1]} />
+            <meshStandardMaterial 
+              color="#ff0000" 
+              emissive="#ff0000"
+              emissiveIntensity={2}
             />
           </mesh>
-          
-          <mesh rotation={[Math.PI/2, 0, 0]}>
-            <torusGeometry args={[1.2, 0.1, 8, 16]} />
-            <meshStandardMaterial
-              color="#303030"
-              emissive="#505050"
-              roughness={0.1}
-              metalness={1}
-            />
-          </mesh>
-          
-          {/* Energy orbs */}
-          {[0, 1, 2, 3].map(i => {
-            const angle = (i / 4) * Math.PI * 2;
-            return (
-              <mesh 
-                key={i} 
-                position={[
-                  Math.sin(angle) * 1.5,
-                  Math.cos(angle) * 1.5,
-                  0
-                ]}
-              >
-                <sphereGeometry args={[0.3, 16, 16]} />
-                <meshStandardMaterial
-                  color="#80A0FF"
-                  emissive="#80A0FF"
-                  emissiveIntensity={3}
-                  transparent={true}
-                  opacity={0.7}
-                />
-              </mesh>
-            );
-          })}
-          
-          {/* Head */}
-          <group position={[0, 2, 0]}>
-            <mesh>
-              <sphereGeometry args={[0.5, 16, 16]} />
-              <meshStandardMaterial
-                color="#202020"
-                roughness={0.2}
-                metalness={0.9}
-              />
-            </mesh>
-            
-            {/* Eye */}
-            <mesh position={[0, 0, 0.4]}>
-              <sphereGeometry args={[0.15, 16, 16]} />
-              <meshStandardMaterial
-                color="#FF3030"
-                emissive="#FF0000"
-                emissiveIntensity={3}
-              />
-            </mesh>
-          </group>
-          
-          {/* Arms */}
-          {[-1, 1].map(side => (
-            <group 
-              key={`arm-${side}`} 
-              position={[side * 1, 1, 0]}
-              rotation={[0, 0, side * Math.PI * 0.15]}
-            >
-              <mesh position={[0, -0.5, 0]}>
-                <cylinderGeometry args={[0.1, 0.1, 1.5, 8]} />
-                <meshStandardMaterial
-                  color="#303030"
-                  roughness={0.1}
-                  metalness={0.9}
-                />
-              </mesh>
-              
-              <mesh position={[side * 0.3, -1.3, 0]}>
-                <boxGeometry args={[0.6, 0.6, 0.2]} />
-                <meshStandardMaterial
-                  color="#505050"
-                  roughness={0.1}
-                  metalness={0.9}
-                />
-              </mesh>
-            </group>
-          ))}
-        </group>
+        )}
+        
+        {/* Glow effect light */}
+        <pointLight 
+          color="#80A0FF"
+          intensity={8}
+          distance={20}
+        />
       </group>
     </RigidBody>
   );
