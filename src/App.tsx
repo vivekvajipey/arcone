@@ -14,6 +14,7 @@ import {
   DepthOfField
 } from '@react-three/postprocessing';
 import { BlendFunction } from 'postprocessing';
+import { Vector2 } from 'three';
 import { CharacterController } from './components/CharacterController';
 import { Ground } from './components/Ground';
 // import { Balls } from './components/Balls'; - Import removed as component is no longer used
@@ -28,8 +29,19 @@ import { MobileControls } from './components/MobileControls';
 import { EtherealAutomaton } from './components/EtherealAutomaton';
 import { HealthBarsWrapper } from './components/HealthBarsWrapper';
 import { CombatManager } from './components/CombatManager';
+import { DeathScreen } from './components/DeathScreen';
 
-function DynamicDepthOfField({ enabled, target, focalLength, bokehScale }) {
+function DynamicDepthOfField({ 
+  enabled, 
+  target, 
+  focalLength, 
+  bokehScale 
+}: { 
+  enabled: boolean; 
+  target: React.RefObject<any>; 
+  focalLength: number; 
+  bokehScale: number;
+}) {
   const { camera } = useThree();
   const [focusDistance, setFocusDistance] = React.useState(0);
   
@@ -91,7 +103,7 @@ function App() {
       effects.push(
         <ChromaticAberration
           key="ca"
-          offset={[postProcessing.chromaticAberrationOffset, postProcessing.chromaticAberrationOffset]}
+          offset={new Vector2(postProcessing.chromaticAberrationOffset, postProcessing.chromaticAberrationOffset)}
           radialModulation={true}
           modulationOffset={0.5}
         />
@@ -142,6 +154,7 @@ function App() {
       </div>
       <Leva collapsed />
       <HealthBarsWrapper>
+        <DeathScreen />
         <MobileControlsProvider>
           <MobileControls />
           <KeyboardControls

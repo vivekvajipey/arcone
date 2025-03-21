@@ -10,6 +10,10 @@ type HealthContextType = {
   healPlayer: (amount: number) => void;
   healAutomaton: (amount: number) => void;
   resetHealth: () => void;
+  isPlayerDead: boolean;
+  score: number;
+  incrementScore: (points: number) => void;
+  resetScore: () => void;
 };
 
 const HealthContext = createContext<HealthContextType | null>(null);
@@ -29,17 +33,35 @@ export const HealthProvider: React.FC<HealthProviderProps> = ({
   const [playerMaxHealth] = useState(initialPlayerHealth);
   const [automatonHealth, setAutomatonHealth] = useState(initialAutomatonHealth);
   const [automatonMaxHealth] = useState(initialAutomatonHealth);
+  const [isPlayerDead, setIsPlayerDead] = useState(false);
+  const [score, setScore] = useState(0);
 
   const damagePlayer = (amount: number) => {
-    setPlayerHealth((prev) => Math.max(0, prev - amount));
+    setPlayerHealth((prev) => {
+      const newHealth = Math.max(0, prev - amount);
+      if (newHealth === 0) {
+        setIsPlayerDead(true);
+      }
+      return newHealth;
+    });
   };
 
   const damageAutomaton = (amount: number) => {
-    setAutomatonHealth((prev) => Math.max(0, prev - amount));
+    setAutomatonHealth((prev) => {
+      const newHealth = Math.max(0, prev - amount);
+      // Give player points when they damage the automaton
+      if (amount > 0) {
+        incrementScore(Math.ceil(amount));
+      }
+      return newHealth;
+    });
   };
 
   const healPlayer = (amount: number) => {
     setPlayerHealth((prev) => Math.min(playerMaxHealth, prev + amount));
+    if (isPlayerDead && amount > 0) {
+      setIsPlayerDead(false);
+    }
   };
 
   const healAutomaton = (amount: number) => {
@@ -49,6 +71,15 @@ export const HealthProvider: React.FC<HealthProviderProps> = ({
   const resetHealth = () => {
     setPlayerHealth(playerMaxHealth);
     setAutomatonHealth(automatonMaxHealth);
+    setIsPlayerDead(false);
+  };
+
+  const incrementScore = (points: number) => {
+    setScore(prev => prev + points);
+  };
+
+  const resetScore = () => {
+    setScore(0);
   };
 
   return (
@@ -63,6 +94,10 @@ export const HealthProvider: React.FC<HealthProviderProps> = ({
         healPlayer,
         healAutomaton,
         resetHealth,
+        isPlayerDead,
+        score,
+        incrementScore,
+        resetScore,
       }}
     >
       {children}

@@ -1,6 +1,6 @@
 import { useGLTF, useAnimations } from '@react-three/drei';
 import { useEffect, useRef, useState } from 'react';
-import { Group } from 'three';
+import { Group, MeshStandardMaterial, Color } from 'three';
 
 type CharacterModelProps = {
   isMoving: boolean;
@@ -9,6 +9,7 @@ type CharacterModelProps = {
   isAttacking?: boolean;
   isCharging?: boolean;
   chargeLevel?: number;
+  isDamaged?: boolean;
 };
 
 export function CharacterModel({ 
@@ -17,20 +18,56 @@ export function CharacterModel({
   isGrounded, 
   isAttacking = false,
   isCharging = false,
-  chargeLevel = 0
+  chargeLevel = 0,
+  isDamaged = false
 }: CharacterModelProps) {
   const group = useRef<Group>(null);
   const [currentAnimation, setCurrentAnimation] = useState<string | null>(null);
   const prevGroundedRef = useRef(isGrounded);
   const { scene, animations } = useGLTF('/models/character.glb', true);
   const { actions } = useAnimations(animations, group);
-
-  scene.traverse((child) => {
-    if ('material' in child) {
-      child.castShadow = true;
-      child.receiveShadow = true;
-    }
-  });
+  
+  // Track original materials to restore after damage effect
+  const originalMaterials = useRef<Map<MeshStandardMaterial, Color>>(new Map());
+  
+  // Setup materials and shadows
+  useEffect(() => {
+    scene.traverse((child) => {
+      if ('material' in child) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+        
+        // Store original material colors
+        if (child.material instanceof MeshStandardMaterial && !originalMaterials.current.has(child.material)) {
+          originalMaterials.current.set(child.material, child.material.color.clone());
+        }
+      }
+    });
+  }, [scene]);
+  
+  // Handle damage effect
+  useEffect(() => {
+    scene.traverse((child) => {
+      if ('material' in child && child.material instanceof MeshStandardMaterial) {
+        const material = child.material as MeshStandardMaterial;
+        
+        if (isDamaged) {
+          // Set material to red and make it emissive for damage effect
+          material.color.set('#ff0000');
+          material.emissive.set('#ff3333');
+          material.emissiveIntensity = 0.5;
+        } else {
+          // Restore original color
+          const originalColor = originalMaterials.current.get(material);
+          if (originalColor) {
+            material.color.copy(originalColor);
+            material.emissive.set('#000000');
+            material.emissiveIntensity = 0;
+          }
+        }
+      }
+    });
+  }, [isDamaged, scene]);
 
   useEffect(() => {
     let targetAnimation = 'IDLE';

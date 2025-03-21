@@ -12,12 +12,15 @@ export const CombatManager: React.FC<CombatManagerProps> = ({
   playerRef,
   automatonRef,
 }) => {
-  const { damagePlayer, damageAutomaton } = useHealth();
+  const { damagePlayer, damageAutomaton, isPlayerDead } = useHealth();
   const lastCollisionCheck = useRef(0);
   const collisionCooldown = 200; // ms between collision checks
   
   // Check for collisions between player and automaton
   useFrame(() => {
+    // Don't check collisions if player is dead
+    if (isPlayerDead) return;
+    
     const now = Date.now();
     
     // Limit how often we check for collisions
@@ -47,12 +50,20 @@ export const CombatManager: React.FC<CombatManagerProps> = ({
   });
   
   const handleCombat = () => {
+    // Don't process combat if player is dead
+    if (isPlayerDead) return;
+    
     // Set a cooldown for damage to prevent rapid hits
     if (!playerRef.current.userData?.lastDamageTime || 
         Date.now() - playerRef.current.userData.lastDamageTime > 1000) {
       
+      // Apply damage to player - increases as game progresses
+      const baseDamage = 15;
+      const timeMultiplier = Math.min(2, 1 + Date.now() % 60000 / 60000); // Gradually increase damage over time
+      const finalDamage = Math.floor(baseDamage * timeMultiplier);
+      
       // Apply damage to player
-      damagePlayer(10);
+      damagePlayer(finalDamage);
       
       // Set the last damage time for cooldown
       if (playerRef.current) {

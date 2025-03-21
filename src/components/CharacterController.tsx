@@ -1,5 +1,4 @@
-import React from 'react';
-import { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Vector3, MathUtils, Ray } from 'three';
 import { CapsuleCollider, RigidBody, useRapier } from '@react-three/rapier';
@@ -30,7 +29,7 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
   const targetRotation = useRef(0);
   const currentRotation = useRef(0);
   const groundRay = useRef(new Ray(new Vector3(), new Vector3(0, -1, 0)));
-  const { damageAutomaton } = useHealth();
+  const { damageAutomaton, playerHealth } = useHealth();
   
   // Combat state
   const [isAttacking, setIsAttacking] = useState(false);
@@ -48,6 +47,10 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
   const [showAttackEffect, setShowAttackEffect] = useState(false);
   const attackEffectTimeout = useRef<number | null>(null);
   
+  // Damage effect state
+  const [isDamaged, setIsDamaged] = useState(false);
+  const damageEffectTimeout = useRef<number | null>(null);
+  
   const [state, setState] = useState<CharacterState>({
     moveSpeed: 0,
     jumpForce: 0,
@@ -57,6 +60,9 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
   });
 
   const controls = useCharacterControls();
+  
+  // Get health context to monitor damage
+  const prevHealthRef = useRef(playerHealth);
   
   // Function to perform a melee attack
   const performAttack = (charged: boolean = false) => {
@@ -167,6 +173,29 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
     
     performAttack(true);
   };
+
+  // Handle damage effect
+  useEffect(() => {
+    // If health decreased, show damage effect
+    if (playerHealth < prevHealthRef.current) {
+      // Clear any existing timeout
+      if (damageEffectTimeout.current) {
+        window.clearTimeout(damageEffectTimeout.current);
+      }
+      
+      // Set damage effect
+      setIsDamaged(true);
+      
+      // Clear damage effect after 300ms
+      damageEffectTimeout.current = window.setTimeout(() => {
+        setIsDamaged(false);
+        damageEffectTimeout.current = null;
+      }, 300);
+    }
+    
+    // Update previous health reference
+    prevHealthRef.current = playerHealth;
+  }, [playerHealth]);
 
   useFrame(() => {
     if (!rigidBody.current) return;
@@ -389,6 +418,7 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
             isAttacking={showAttackEffect}
             isCharging={isCharging}
             chargeLevel={chargeLevel}
+            isDamaged={isDamaged}
           />
         </group>
       </RigidBody>

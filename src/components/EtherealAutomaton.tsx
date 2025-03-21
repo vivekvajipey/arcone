@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect, forwardRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider } from '@react-three/rapier';
-import { Group, Vector3, MeshStandardMaterial, Clock, Object3D } from 'three';
+import { Group, Vector3, MeshStandardMaterial, Clock, Object3D, Color } from 'three';
 import { useGLTF } from '@react-three/drei';
 import { useHealth } from '../contexts/HealthContext';
 import { Projectile } from './Projectile';
@@ -36,6 +36,13 @@ export const EtherealAutomaton = forwardRef<any, EtherealAutomatonProps>(
     const gameStartTime = useRef(Date.now());
     const startupDelay = 2000; // Reduced startup delay
     
+    // Damage effect state
+    const [isDamaged, setIsDamaged] = useState(false);
+    const damageEffectTimeout = useRef<number | null>(null);
+    const prevHealthRef = useRef(automatonHealth);
+    const originalMaterials = useRef<Map<MeshStandardMaterial, {color: Color, emissive: Color}>>
+      (new Map());
+    
     // Fixed position in the center
     const centerPosition = new Vector3(position[0], position[1] + 1, position[2]);
     
@@ -47,11 +54,31 @@ export const EtherealAutomaton = forwardRef<any, EtherealAutomatonProps>(
     
     // React to health changes
     React.useEffect(() => {
+      // If health decreased, show damage effect
+      if (automatonHealth < prevHealthRef.current) {
+        // Clear any existing timeout
+        if (damageEffectTimeout.current) {
+          window.clearTimeout(damageEffectTimeout.current);
+        }
+        
+        // Set damage effect
+        setIsDamaged(true);
+        
+        // Clear damage effect after 300ms
+        damageEffectTimeout.current = window.setTimeout(() => {
+          setIsDamaged(false);
+          damageEffectTimeout.current = null;
+        }, 300);
+      }
+      
       // Handle any effects when health changes
       if (automatonHealth <= 0) {
         // Handle automaton death
         console.log('Automaton defeated!');
       }
+      
+      // Update previous health reference
+      prevHealthRef.current = automatonHealth;
     }, [automatonHealth]);
     
     // Apply effects and setup on mount
@@ -64,22 +91,30 @@ export const EtherealAutomaton = forwardRef<any, EtherealAutomatonProps>(
           // Clone the scene to avoid modifying the original
           const clonedScene = model.scene.clone();
           
-          // Keep original materials but enable shadows
+          // Store original materials and enable shadows
           clonedScene.traverse((child: any) => {
             if (child.isMesh) {
               child.castShadow = true;
               child.receiveShadow = true;
               
-              // Keep original material, don't replace it
-              // Just make sure it can cast/receive shadows properly
+              // Store original material properties
               if (child.material) {
                 if (Array.isArray(child.material)) {
                   child.material.forEach((mat: any) => {
-                    if (mat) {
+                    if (mat && mat instanceof MeshStandardMaterial && !originalMaterials.current.has(mat)) {
+                      originalMaterials.current.set(mat, {
+                        color: mat.color.clone(),
+                        emissive: mat.emissive.clone()
+                      });
                       mat.needsUpdate = true;
                     }
                   });
-                } else {
+                } else if (child.material instanceof MeshStandardMaterial && 
+                           !originalMaterials.current.has(child.material)) {
+                  originalMaterials.current.set(child.material, {
+                    color: child.material.color.clone(),
+                    emissive: child.material.emissive.clone()
+                  });
                   child.material.needsUpdate = true;
                 }
               }
@@ -104,6 +139,35 @@ export const EtherealAutomaton = forwardRef<any, EtherealAutomatonProps>(
         }
       }
     }, [model.scene, modelLoaded]);
+    
+    // Handle damage visual effect
+    useEffect(() => {
+      if (!group.current) return;
+      
+      group.current.traverse((child: any) => {
+        if (child.isMesh && child.material) {
+          const materials = Array.isArray(child.material) ? child.material : [child.material];
+          
+          materials.forEach((material: any) => {
+            if (material instanceof MeshStandardMaterial) {
+              if (isDamaged) {
+                // Apply damage effect (red glow)
+                material.emissive.set('#ff0000');
+                material.emissiveIntensity = 1.0;
+              } else {
+                // Restore original material
+                const original = originalMaterials.current.get(material);
+                if (original) {
+                  material.emissive.copy(original.emissive);
+                  material.emissiveIntensity = 0.5; // Maintain the ethereal glow
+                }
+              }
+              material.needsUpdate = true;
+            }
+          });
+        }
+      });
+    }, [isDamaged]);
     
     // Function to shoot a projectile
     const shootProjectile = () => {
