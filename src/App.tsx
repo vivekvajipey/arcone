@@ -138,7 +138,7 @@ function App() {
     <div className="w-full h-screen">
       <Bolt className="fixed top-4 right-4 w-6 h-6 text-white opacity-50" />
       <div className="fixed bottom-2 left-1/2 -translate-x-1/2 text-white font-mono text-sm pointer-events-none select-none bg-white/30 px-4 py-2 rounded-lg backdrop-blur-sm z-50">
-        WASD to move | SPACE to jump | SHIFT to run
+        WASD to move | SPACE to jump | SHIFT to run | F to attack (hold for charged attack)
       </div>
       <Leva collapsed />
       <HealthBarsWrapper>
@@ -152,6 +152,7 @@ function App() {
               { name: 'right', keys: ['ArrowRight', 'd', 'D'] },
               { name: 'jump', keys: ['Space'] },
               { name: 'sprint', keys: ['ShiftLeft', 'ShiftRight'] },
+              { name: 'attack', keys: ['f', 'F'] },
             ]}
           >
             <Canvas shadows>

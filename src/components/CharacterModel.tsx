@@ -6,9 +6,19 @@ type CharacterModelProps = {
   isMoving: boolean;
   isSprinting: boolean;
   isGrounded: boolean;
+  isAttacking?: boolean;
+  isCharging?: boolean;
+  chargeLevel?: number;
 };
 
-export function CharacterModel({ isMoving, isSprinting, isGrounded }: CharacterModelProps) {
+export function CharacterModel({ 
+  isMoving, 
+  isSprinting, 
+  isGrounded, 
+  isAttacking = false,
+  isCharging = false,
+  chargeLevel = 0
+}: CharacterModelProps) {
   const group = useRef<Group>(null);
   const [currentAnimation, setCurrentAnimation] = useState<string | null>(null);
   const prevGroundedRef = useRef(isGrounded);
@@ -25,14 +35,41 @@ export function CharacterModel({ isMoving, isSprinting, isGrounded }: CharacterM
   useEffect(() => {
     let targetAnimation = 'IDLE';
     
-    // Determine target animation based on character state
-    if (!isGrounded) {
+    // Attack animations take priority
+    if (isAttacking) {
+      targetAnimation = chargeLevel > 0.5 ? 'ATTACK_HEAVY' : 'ATTACK';
+    }
+    // Then check if character is in air
+    else if (!isGrounded) {
       targetAnimation = 'FALL';
-    } else if (isMoving) {
+    }
+    // Then check movement state
+    else if (isMoving) {
       targetAnimation = isSprinting ? 'RUN' : 'WALK'; // Use WALK when not sprinting
     }
+    else if (isCharging) {
+      targetAnimation = 'CHARGE'; // Charging up attack
+    }
     
-    // Fall back to RUN if WALK isn't available
+    // Fall back to appropriate animations if specific ones aren't available
+    if ((targetAnimation === 'ATTACK' || targetAnimation === 'ATTACK_HEAVY') && !actions[targetAnimation]) {
+      // If attack animation isn't available, use RUN as fallback
+      targetAnimation = 'RUN';
+      // Make run animation faster to simulate attack motion
+      if (actions['RUN']) {
+        actions['RUN'].timeScale = 1.5;
+      }
+    }
+    
+    if (targetAnimation === 'CHARGE' && !actions['CHARGE']) {
+      // If charge animation isn't available, use IDLE with special handling
+      targetAnimation = 'IDLE';
+      // Make idle animation pulse based on charge level
+      if (actions['IDLE']) {
+        actions['IDLE'].timeScale = 0.5 + chargeLevel;
+      }
+    }
+    
     if (targetAnimation === 'WALK' && !actions['WALK']) {
       targetAnimation = 'RUN';
       // Slow down the run animation when walking
@@ -49,7 +86,7 @@ export function CharacterModel({ isMoving, isSprinting, isGrounded }: CharacterM
     prevGroundedRef.current = isGrounded;
     
     // If it's the first animation, same animation, or if force needed, play it directly
-    if (!currentAnimation || currentAnimation === targetAnimation || returningToGround) {
+    if (!currentAnimation || currentAnimation === targetAnimation || returningToGround || isAttacking) {
       const action = actions[targetAnimation];
       if (action) {
         action.reset().play();
@@ -75,7 +112,7 @@ export function CharacterModel({ isMoving, isSprinting, isGrounded }: CharacterM
       setCurrentAnimation(targetAnimation);
     }
     
-  }, [actions, isMoving, isSprinting, isGrounded, currentAnimation]);
+  }, [actions, isMoving, isSprinting, isGrounded, isAttacking, isCharging, chargeLevel, currentAnimation]);
   
   return <primitive ref={group} object={scene} />;
 }

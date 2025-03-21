@@ -263,6 +263,7 @@ export const EtherealAutomaton = forwardRef<any, EtherealAutomatonProps>(
           position={position}
           colliders={false}
           gravityScale={0} // No gravity
+          userData={{ isAutomaton: true }}
         >
           {/* Add explicit collider with proper dimensions */}
           <CuboidCollider 

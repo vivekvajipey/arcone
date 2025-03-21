@@ -2,12 +2,13 @@ import React from 'react';
 import { useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Vector3, MathUtils, Ray } from 'three';
-import { CapsuleCollider, RigidBody } from '@react-three/rapier';
+import { CapsuleCollider, RigidBody, useRapier } from '@react-three/rapier';
 import { useKeyboardControls } from '@react-three/drei';
 import { useCharacterControls } from '../hooks/useCharacterControls';
 import { calculateMovement, createJumpImpulse, createMovementVelocity } from '../utils/physics';
 import { useMobileControls } from '../contexts/MobileControlsContext';
 import { CharacterModel } from './CharacterModel';
+import { useHealth } from '../contexts/HealthContext';
 
 export type CharacterState = {
   moveSpeed: number;
@@ -20,6 +21,7 @@ export type CharacterState = {
 export const CharacterController = React.forwardRef<any>((_, ref) => {
   const rigidBody = useRef<any>(null);
   const modelRef = useRef<any>(null);
+  const { rapier, world } = useRapier();
   const { isJumping: isMobileJumping, movement: mobileMovement } = useMobileControls();
   const [, getKeys] = useKeyboardControls();
   const [isSprinting, setIsSprinting] = useState(false);
@@ -28,6 +30,24 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
   const targetRotation = useRef(0);
   const currentRotation = useRef(0);
   const groundRay = useRef(new Ray(new Vector3(), new Vector3(0, -1, 0)));
+  const { damageAutomaton } = useHealth();
+  
+  // Combat state
+  const [isAttacking, setIsAttacking] = useState(false);
+  const [isCharging, setIsCharging] = useState(false);
+  const [chargeLevel, setChargeLevel] = useState(0);
+  const attackStartTime = useRef(0);
+  const attackCooldown = 0.5; // Time between attacks in seconds
+  const lastAttackTime = useRef(0);
+  const attackRadius = 2.5; // Attack radius in units
+  const attackDamage = 15; // Base attack damage
+  const maxChargeTime = 1.5; // Time to reach max charge (seconds)
+  const maxChargeDamageMultiplier = 3; // Multiplier for fully charged attacks
+  
+  // Attack effect state
+  const [showAttackEffect, setShowAttackEffect] = useState(false);
+  const attackEffectTimeout = useRef<number | null>(null);
+  
   const [state, setState] = useState<CharacterState>({
     moveSpeed: 0,
     jumpForce: 0,
@@ -37,6 +57,116 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
   });
 
   const controls = useCharacterControls();
+  
+  // Function to perform a melee attack
+  const performAttack = (charged: boolean = false) => {
+    if (!rigidBody.current) return;
+    
+    const now = performance.now() / 1000; // Convert to seconds
+    
+    // Check cooldown
+    if (now - lastAttackTime.current < attackCooldown) return;
+    
+    const translation = rigidBody.current.translation();
+    
+    // Calculate attack direction (forward direction of character)
+    const attackDirection = new Vector3(
+      Math.sin(currentRotation.current),
+      0,
+      Math.cos(currentRotation.current)
+    ).normalize();
+    
+    // Calculate actual damage based on charge level
+    const chargeFactor = charged ? chargeLevel : 0;
+    const finalDamage = attackDamage * (1 + chargeFactor * (maxChargeDamageMultiplier - 1));
+    const finalRadius = attackRadius * (1 + chargeFactor * 0.5); // Larger radius for charged attacks
+    
+    console.log(`Player performs ${charged ? `charged (${Math.floor(chargeLevel * 100)}%)` : 'quick'} attack! Damage: ${finalDamage.toFixed(1)}`);
+    
+    // Get all rigid bodies in the world for hit detection
+    if (world) {
+      let hitSomething = false;
+      
+      world.bodies.forEach(body => {
+        // Skip player's own body
+        if (body === rigidBody.current) return;
+        
+        // Check if this is the automaton
+        const userData = body.userData as any;
+        if (userData?.isAutomaton) {
+          // Get automaton position
+          const bodyPos = body.translation();
+          
+          // Calculate vector from player to automaton
+          const playerPos = new Vector3(translation.x, translation.y, translation.z);
+          const automatonPos = new Vector3(bodyPos.x, bodyPos.y, bodyPos.z);
+          
+          // Calculate distance
+          const distance = playerPos.distanceTo(automatonPos);
+          
+          // Check if automaton is in front of player (dot product with attack direction)
+          const toAutomaton = automatonPos.clone().sub(playerPos).normalize();
+          const facingFactor = attackDirection.dot(toAutomaton);
+          
+          // If automaton is in attack range and in front of player
+          if (distance < finalRadius && facingFactor > 0.3) {
+            console.log(`Hit automaton! Distance: ${distance.toFixed(2)}, Facing: ${facingFactor.toFixed(2)}`);
+            
+            // Apply damage
+            damageAutomaton(finalDamage);
+            hitSomething = true;
+            
+            // Apply "knockback" by moving player slightly back
+            if (charged && chargeLevel > 0.5) {
+              const knockbackForce = -2 * chargeLevel; // Negative to move back
+              const newPos = {
+                x: translation.x + attackDirection.x * knockbackForce,
+                y: translation.y,
+                z: translation.z + attackDirection.z * knockbackForce
+              };
+              rigidBody.current.setTranslation(newPos, true);
+            }
+          }
+        }
+      });
+      
+      // Show attack effect
+      setShowAttackEffect(true);
+      
+      // Clear previous timeout if exists
+      if (attackEffectTimeout.current) {
+        clearTimeout(attackEffectTimeout.current);
+      }
+      
+      // Hide attack effect after 200ms
+      attackEffectTimeout.current = setTimeout(() => {
+        setShowAttackEffect(false);
+      }, charged ? 300 : 200);
+      
+      // Update last attack time
+      lastAttackTime.current = now;
+      
+      // Reset charge
+      setChargeLevel(0);
+      setIsCharging(false);
+    }
+  };
+  
+  // Start charging attack
+  const startCharging = () => {
+    if (isCharging) return;
+    
+    setIsCharging(true);
+    attackStartTime.current = performance.now() / 1000;
+    setChargeLevel(0);
+  };
+  
+  // Release charged attack
+  const releaseChargedAttack = () => {
+    if (!isCharging) return;
+    
+    performAttack(true);
+  };
 
   useFrame(() => {
     if (!rigidBody.current) return;
@@ -45,16 +175,48 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
     const translation = rigidBody.current.translation();
     const linvel = rigidBody.current.linvel();
     
-    // Simplified ground detection - just check if we're close to the ground
-    // and have minimal vertical velocity
-    const height = translation.y;
-    const verticalVelocity = Math.abs(linvel.y);
+    // Cast a simple ray for ground detection
+    const rayLength = 1.5;
+    const rayDir = { x: 0, y: -1, z: 0 };
     
-    // Consider grounded if close to a surface and not moving quickly upward
-    const isGrounded = height < 1.8 && verticalVelocity < 3;
+    let isGrounded = false;
+    let groundY = 0;
+    
+    const ray = new rapier.Ray(
+      { x: translation.x, y: translation.y, z: translation.z },
+      rayDir
+    );
+    
+    const hit = world.castRay(
+      ray,
+      rayLength,
+      true, // Solid = true to detect the ground plane
+      undefined,
+      undefined,
+      undefined,
+      rigidBody.current
+    );
+    
+    if (hit) {
+      // Cast to any to access properties not in type definition
+      const hitResult = hit as any;
+      const hitDistance = hitResult.toi;
+      isGrounded = hitDistance < 1.5;
+      
+      // Get ground height
+      if (hitResult.point) {
+        groundY = hitResult.point.y;
+      }
+    }
+    
+    // Fallback to simplified height check if ray cast fails
+    if (!isGrounded) {
+      isGrounded = translation.y < 1.0 && Math.abs(linvel.y) < 3;
+    }
     
     const input = getKeys();
     const shouldJump = input.jump || isMobileJumping;
+    const shouldAttack = input.attack;
     const currentPos = new Vector3(
       translation.x,
       translation.y,
@@ -142,6 +304,36 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
       );
     }
     
+    // Handle attack
+    if (shouldAttack) {
+      if (!isCharging) {
+        startCharging();
+      } else {
+        // Update charge level
+        const chargeTime = (performance.now() / 1000) - attackStartTime.current;
+        const newChargeLevel = Math.min(chargeTime / maxChargeTime, 1.0);
+        setChargeLevel(newChargeLevel);
+      }
+    } else if (isCharging) {
+      // Release charged attack when button is released
+      releaseChargedAttack();
+    }
+    
+    // Simple ground snapping when grounded and not jumping
+    if (isGrounded && hit && !shouldJump && Math.abs(linvel.y) < 2) {
+      const hitResult = hit as any;
+      if (hitResult.point) {
+        // Calculate target Y with offset for proper foot placement
+        const targetY = hitResult.point.y + 1.2;
+        
+        // Only adjust Y, keeping X and Z movement free
+        rigidBody.current.setTranslation(
+          { x: translation.x, y: targetY, z: translation.z },
+          true
+        );
+      }
+    }
+    
     // Store position for next frame
     if (isGrounded) {
       prevPosition.current.copy(currentPos);
@@ -171,30 +363,80 @@ export const CharacterController = React.forwardRef<any>((_, ref) => {
   }), [rigidBody.current]);
 
   return (
-    <RigidBody
-      ref={rigidBody}
-      colliders={false}
-      mass={10}
-      position={[0, 8, 10]}
-      enabledRotations={[false, false, false]}
-      lockRotations
-      gravityScale={3}
-      friction={controls.friction}
-      linearDamping={controls.linearDamping}
-      angularDamping={controls.angularDamping}
-      restitution={0}
-      ccd={true}
-      type="dynamic"
-      userData={{ isPlayer: true }}
-    >
-      <CapsuleCollider args={[0.8, 0.6]} position={[0, 1.4, 0]} />
-      <group ref={modelRef} position={[0, -0.8, 0]} scale={1.5}>
-        <CharacterModel 
-          isMoving={isMoving} 
-          isSprinting={isSprinting} 
-          isGrounded={state.isGrounded} 
-        />
-      </group>
-    </RigidBody>
+    <>
+      <RigidBody
+        ref={rigidBody}
+        colliders={false}
+        mass={10}
+        position={[0, 3, 10]}
+        enabledRotations={[false, false, false]}
+        lockRotations
+        gravityScale={3}
+        friction={controls.friction}
+        linearDamping={controls.linearDamping}
+        angularDamping={controls.angularDamping}
+        restitution={0}
+        ccd={true}
+        type="dynamic"
+        userData={{ isPlayer: true }}
+      >
+        <CapsuleCollider args={[0.8, 0.6]} position={[0, 1.4, 0]} />
+        <group ref={modelRef} position={[0, -1.15, 0]} scale={1.5}>
+          <CharacterModel 
+            isMoving={isMoving} 
+            isSprinting={isSprinting} 
+            isGrounded={state.isGrounded}
+            isAttacking={showAttackEffect}
+            isCharging={isCharging}
+            chargeLevel={chargeLevel}
+          />
+        </group>
+      </RigidBody>
+      
+      {/* Attack visualization/effect */}
+      {showAttackEffect && (
+        <mesh
+          position={[
+            rigidBody.current.translation().x + Math.sin(currentRotation.current) * 1.5,
+            rigidBody.current.translation().y + 1,
+            rigidBody.current.translation().z + Math.cos(currentRotation.current) * 1.5
+          ]}
+          rotation={[0, currentRotation.current, 0]}
+        >
+          <coneGeometry args={[isCharging && chargeLevel > 0.5 ? 1.5 : 1, 3, 16]} />
+          <meshStandardMaterial 
+            color={isCharging && chargeLevel > 0.5 ? "#ff3300" : "#4488ff"} 
+            emissive={isCharging && chargeLevel > 0.5 ? "#ff3300" : "#4488ff"}
+            emissiveIntensity={3} 
+            transparent={true} 
+            opacity={0.6} 
+          />
+        </mesh>
+      )}
+      
+      {/* Charge indicator */}
+      {isCharging && (
+        <mesh
+          position={[
+            rigidBody.current.translation().x,
+            rigidBody.current.translation().y + 3,
+            rigidBody.current.translation().z
+          ]}
+        >
+          <ringGeometry args={[0.6, 0.8, 32]} />
+          <meshBasicMaterial color="#ffffff" />
+          <mesh position={[0, 0, 0.01]} rotation={[0, 0, Math.PI * (-0.5 + chargeLevel)]}>
+            <ringGeometry args={[0.6, 0.8, 32, 1, 0, Math.PI * 2 * chargeLevel]} />
+            <meshBasicMaterial
+              color={
+                chargeLevel < 0.3 ? "#44ff44" :
+                chargeLevel < 0.7 ? "#ffff00" :
+                "#ff4400"
+              }
+            />
+          </mesh>
+        </mesh>
+      )}
+    </>
   );
 });
