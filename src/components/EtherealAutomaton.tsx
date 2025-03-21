@@ -19,15 +19,10 @@ export const EtherealAutomaton = forwardRef<any, EtherealAutomatonProps>(
     const group = useRef<Group>(null);
     const rigidBody = useRef(null);
     const [modelLoaded, setModelLoaded] = useState(false);
-    const clock = useRef(new Clock());
     const { automatonHealth } = useHealth();
     
-    // Flight path parameters
-    const centerPosition = useRef(new Vector3(position[0], position[1] + 2, position[2]));
-    const radius = 8; // Radius of circular flight path
-    const heightVariation = 1; // How much it moves up and down
-    const rotationSpeed = 0.1; // How fast it rotates around the area
-    const bobSpeed = 0.5; // Speed of up/down movement
+    // Fixed position in the center
+    const centerPosition = new Vector3(position[0], position[1] + 1, position[2]);
     
     // Load the model
     const model = useGLTF('/models/automaton.glb');
@@ -95,38 +90,41 @@ export const EtherealAutomaton = forwardRef<any, EtherealAutomatonProps>(
       }
     }, [model.scene, modelLoaded]);
     
-    // Flying animation - adjust behavior based on health
+    // Face the player
     useFrame(() => {
-      if (!rigidBody.current) return;
+      if (!rigidBody.current || !target?.current?.position) return;
       
-      const elapsedTime = clock.current.getElapsedTime();
-      
-      // Calculate new position in a circular path with bobbing
-      const angle = elapsedTime * rotationSpeed;
-      const x = centerPosition.current.x + Math.sin(angle) * radius;
-      const z = centerPosition.current.z + Math.cos(angle) * radius;
-      const y = centerPosition.current.y + Math.sin(elapsedTime * bobSpeed) * heightVariation;
-      
-      // Apply the new position to the rigid body
+      // Set position to center (fixed position)
       // @ts-ignore - using the setTranslation method which might not be in the type definitions
-      rigidBody.current.setTranslation({ x, y, z }, true);
+      rigidBody.current.setTranslation(centerPosition, true);
       
-      // Gradually rotate the model to face the direction it's moving
+      // Get player position
+      const playerPosition = target.current.position.clone();
+      
+      // Calculate direction to player
+      const direction = new Vector3(
+        playerPosition.x - centerPosition.x,
+        0, // Keep Y rotation level
+        playerPosition.z - centerPosition.z
+      );
+      
+      // Skip if direction is too small
+      if (direction.length() < 0.1) return;
+      
+      // Calculate the target rotation - atan2 gives the angle in radians
+      const targetRotation = Math.atan2(direction.x, direction.z);
+      
+      // Gradually rotate the model to face the player
       if (group.current) {
-        const targetRotation = Math.atan2(
-          Math.cos(angle), // direction Z
-          -Math.sin(angle) // direction X (negative because of coordinate system)
-        );
-        
-        // Smoothly interpolate the current rotation to the target
         const currentY = group.current.rotation.y;
-        const angleDiff = targetRotation - currentY;
+        let angleDiff = targetRotation - currentY;
         
-        // Handle angle wrapping
-        const shortestAngle = ((angleDiff + Math.PI) % (Math.PI * 2)) - Math.PI;
+        // Handle angle wrapping (ensure shortest rotation path)
+        if (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        if (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
         
-        // Apply smooth rotation
-        group.current.rotation.y += shortestAngle * 0.05; // Smooth turning
+        // Apply smooth rotation (lerp)
+        group.current.rotation.y += angleDiff * 0.1; // Adjust speed as needed
       }
     });
     
