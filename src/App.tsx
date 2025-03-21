@@ -16,7 +16,7 @@ import {
 import { BlendFunction } from 'postprocessing';
 import { CharacterController } from './components/CharacterController';
 import { Ground } from './components/Ground';
-import { Balls } from './components/Balls';
+// import { Balls } from './components/Balls'; - Import removed as component is no longer used
 import { FollowCamera } from './components/FollowCamera';
 import { useCharacterControls } from './hooks/useCharacterControls';
 import { useCameraControls } from './hooks/useCameraControls';
@@ -105,7 +105,7 @@ function App() {
           >
             <CharacterController ref={characterRef} />
             <Ground />
-            <Balls />
+            {/* <Balls /> - Removed blue spheres from startup, component still available in src/components/Balls.tsx */}
           </Physics>
           <FollowCamera target={characterRef} />
           <EffectComposer>
